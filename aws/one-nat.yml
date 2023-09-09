@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  StackName:
+    Description: Stack Name
+    Type: String
+    Default: base
+  VpcCidr:
+    Description: VPC CIDR
+    Type: String
+    Default: 172.20.0.0/16
+  VpcCidr:
+    Description: VPC CIDR
+    Type: String
+    Default: 172.20.0.0/16
+  Public0Cidr:
+    Description: Public subnet 0 CIDR
+    Type: String
+    Default: 172.20.0.0/24
+  Public1Cidr:
+    Description: Public subnet 1 CIDR
+    Type: String
+    Default: 172.20.2.0/24
+  Private0Cidr:
+    Description: Private subnet 0 CIDR
+    Type: String
+    Default: 172.20.1.0/24
+  Private1Cidr:
+    Description: Private subnet 1 CIDR
+    Type: String
+    Default: 172.20.3.0/24
+
+Resources:
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-eip"
+  
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: 'true'
+      EnableDnsSupport: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-vpc"
+
+  PublicSubnet0:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref Public0Cidr
+      VpcId: !Ref VPC
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-public-subnet-0"
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref Public1Cidr
+      VpcId: !Ref VPC
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-public-subnet-1"
+
+  PrivateSubnet0:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref Private0Cidr
+      VpcId: !Ref VPC
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-private-subnet-0"
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref Private1Cidr
+      VpcId: !Ref VPC
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-private-subnet-1"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-public-route-table"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-private-route-table"
+
+  S3VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !Ref PrivateRouteTable
+
+  DynamodbVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !Ref PrivateRouteTable
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-internet-gateway"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  InternetGatewayRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  NatGatewayRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+      RouteTableId: !Ref PrivateRouteTable
+
+  PublicSubnet0TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet0
+
+  PublicSubnet1TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PrivateSubnet0TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet0
+
+  PrivateSubnet1TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt: ["EIP", "AllocationId"]
+      ConnectivityType: public
+      SubnetId: !Ref PublicSubnet0
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackName}-nat-gateway"
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "default security group for ${StackName} vpc"
+      GroupName: !Sub "${StackName}-security-group"
+      VpcId: !Ref VPC
+
+Outputs:
+  VpcIdOutput:
+    Description: VPC id
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${StackName}-vpc-id"
+
+  SecurityGroupIdOutput:
+    Description: Security group id
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub "${StackName}-security-group-id"
